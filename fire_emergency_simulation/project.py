@@ -5,7 +5,7 @@ import numpy as np
 import os
 
 from analysis import run_simulation_with_policies, generate_random_times
-from policies import LBR, EmpiricalDispatch
+from policies import LBR, EmpiricalDispatch, MinP95
 from models import Vehicle
 from config import NUM_AREA, NUM_PARAMETER_SETS, NUM_REPLICATIONS, SIMULATION_TIME, NUM_SAMPLES
 from globals import globs
@@ -81,9 +81,8 @@ def generate_vehicles(precomputed):
 # ---------------------------------------------------
 def run_replications():
     globs.replication_index = 0
-    our_policy = LBR()
-    other_policies = [EmpiricalDispatch()]
-    all_policies = other_policies + [our_policy]
+    policies = [EmpiricalDispatch(), MinP95(), LBR()]
+    all_policies = policies
     policy_rep_results = {type(p).__name__: [] for p in all_policies}
 
     for rep in range(NUM_REPLICATIONS):
@@ -91,6 +90,7 @@ def run_replications():
         precomputed = generate_random_times(NUM_SAMPLES)
         vehicles = generate_vehicles(precomputed)
         results = run_simulation_with_policies(vehicles, precomputed, SIMULATION_TIME, all_policies)
+        append_three_policy_row(results, rep)
         for policy, result in zip(all_policies, results):
             policy_rep_results[type(policy).__name__].append(result)
 
@@ -189,7 +189,26 @@ def summarize_replication_results(p1_results, p2_results, name_p1_vs_p2):
         'avg_policy2_queue': float(np.mean(policy2_queues)) if policy2_queues else np.nan,
         'mean_improvement': float(np.mean(rel_improvements)) if rel_improvements else np.nan,
     }
+def append_three_policy_row(results: List[Dict[str, Any]], rep_idx: int):
+    """
+    Writes one row per replication with all three policies' results side-by-side.
+    Assumes order: [Empirical, MinP95, LBR]
+    """
+    result_dict = {
+        "replication": rep_idx,
+    }
+    for r in results:
+        name = r['policy']
+        result_dict.update({
+            f"{name}_p90": r['percentile_90'],
+            f"{name}_mean_RT": r['mean_RT'],
+            f"{name}_avg_queue": r['avg_queue'],
+            f"{name}_max_queue": r['max_queue'],
+            f"{name}_system_load": r['system_load'],
+            f"{name}_total_services": r['total_services']
+        })
 
+    append_replication_row(result_dict, path="replication_results.xlsx", sheet="three_policy_results")
 
 # ---------------------------------------------------
 # Top-level orchestrator
@@ -224,4 +243,6 @@ def runProject():
     )
 
     return final_dfs
+
+
 
