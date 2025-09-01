@@ -110,77 +110,41 @@ class LBR(DispatchPolicy):
                   key=lambda vid: self.prioritization_parameters[area_id][vid])
 
 
-class MeanRT(DispatchPolicy):
-    """
-    Policy that selects vehicle with the lowest mean response time.
-    
-    mean_response_times: Matrix of mean response times by area and vehicle
-    """
-    mean_response_times: Dict[int, Dict[int, float]]
-
-    def compute_parameters(self, precomputed_times: PrecomputedTimes, vehicles: List[Vehicle], 
-                           num_area: int, mean_response_times: Dict[int, Dict[int, float]]) -> None:
-        self.mean_response_times = mean_response_times
-    
-    def select_vehicle(self, area_id: int, available_vehicles: Set[int]) -> Optional[int]:
-        """
-        Select vehicle with lowest mean response time.
-        Args:
-            area_id: ID of the area requiring service
-            available_vehicles: Set of available vehicle IDs
-        Returns:
-            ID of the selected vehicle, or None if no vehicle is available
-        """
-        if not available_vehicles:
-            return None
-            
-        return min(available_vehicles,
-                  key=lambda vid: self.mean_response_times[area_id][vid])
-
-class Percentil_95(DispatchPolicy):
-    """
-    Policy that selects vehicle with the lowest percentile 95 response time.
-    """
-    percentile_95: Dict[int, Dict[int, float]]
 
 
-    def compute_parameters(self, precomputed_times: PrecomputedTimes, vehicles: List[Vehicle], num_area: int,
-                        mean_response_times: Dict[int, Dict[int, float]]) -> None:
-        
-        self.percentile_95 = {}
-        
+
+
+class MinP95(DispatchPolicy):
+    """
+    Policy that selects the available vehicle with the minimum
+    95th-percentile response time for the requested area.
+    """
+    p95_response_by_area_vehicle: Dict[int, Dict[int, float]]
+
+    def compute_parameters(
+        self,
+        precomputed_times: PrecomputedTimes,
+        vehicles: List[Vehicle],
+        num_area: int,
+        mean_response_times: Dict[int, Dict[int, float]] = None,  # unused; kept for interface parity
+    ) -> None:
+        self.p95_response_by_area_vehicle = {}
         for area_id in range(num_area):
-            self.percentile_95[area_id] = {}  
-            for vehicle_id, vehicle in enumerate(vehicles):
+            self.p95_response_by_area_vehicle[area_id] = {}
+            for vehicle_id, _ in enumerate(vehicles):
+                responses = precomputed_times.responses.get((area_id, vehicle_id), [])
+                if responses:
+                    p95 = float(np.percentile(responses, 95))
+                else:
+                    p95 = float("inf")  # no data → never prefer this vehicle
+                self.p95_response_by_area_vehicle[area_id][vehicle_id] = p95
 
-                # Calculate 95th percentile from lognormal distribution
-                mean_response = mean_response_times[area_id][vehicle_id]
-                cv_response = vehicle.response_cvs[area_id]
-
-                # Convert to lognormal parameters
-                sigma = np.sqrt(np.log(1 + cv_response ** 2))
-                mu = np.log(mean_response) - 0.5 * sigma ** 2
-
-                # Use SciPy's lognormal PPF function
-                percentile_95 = stats.lognorm.ppf(0.95, s=sigma, scale=np.exp(mu))
-
-                self.percentile_95[area_id][vehicle_id] = percentile_95
-    
-    
     def select_vehicle(self, area_id: int, available_vehicles: Set[int]) -> Optional[int]:
-        """
-        Select vehicle with lowest percentile response time.
-        Args:
-            area_id: ID of the area requiring service
-            available_vehicles: Set of available vehicle IDs
-        Returns:
-            ID of the selected vehicle, or None if no vehicle is available
-        """
         if not available_vehicles:
             return None
-            
-        return min(available_vehicles,
-                  key=lambda vid: self.percentile_95[area_id][vid])
-
-
+        # Choose argmin by precomputed P95; tie-break by vehicle id (stable & deterministic)
+        return min(
+            available_vehicles,
+            key=lambda vid: (self.p95_response_by_area_vehicle[area_id][vid], vid)
+        )
 
