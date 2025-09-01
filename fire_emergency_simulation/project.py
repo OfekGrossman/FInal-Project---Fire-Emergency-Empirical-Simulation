@@ -3,13 +3,15 @@ import logging
 import pandas as pd
 import numpy as np
 import os
-
+from typing import Set, Dict, Optional, List, Tuple,Any
 from analysis import run_simulation_with_policies, generate_random_times
 from policies import LBR, EmpiricalDispatch, MinP95
 from models import Vehicle
 from config import NUM_AREA, NUM_PARAMETER_SETS, NUM_REPLICATIONS, SIMULATION_TIME, NUM_SAMPLES
 from globals import globs
 from plots import generate_policy_comparison_plots
+from wining_scores import get_statistique_score, get_score_and_save_CI
+
 
 # ---------------------------------------------------
 # Logging
@@ -181,7 +183,19 @@ def summarize_replication_results(p1_results, p2_results, name_p1_vs_p2):
         policy1_loads.append(p1_load)
         policy2_loads.append(p2_load)
 
+    # One-sided Wilcoxon at alpha=0.10: tests whether Policy 2 < Policy 1 (better if lower P90)
+    _wilcoxon_win = get_statistique_score(
+        policy1_percentiles, policy2_percentiles,
+        name_p1_vs_p2, path="replication_results.xlsx"
+    )
+
+    # 90% CI overlap summary (p2_win/teko saved). Sheet name = comparison name.
+    _p2_wins, _tekos = get_score_and_save_CI(
+        policy1_percentiles, policy2_percentiles,
+        name_p1_vs_p2, path="replication_results.xlsx"
+    )
     # light in-memory summary (no extra Excel files produced)
+
     return {
         'avg_policy1_load': float(np.mean(policy1_loads)) if policy1_loads else np.nan,
         'avg_policy2_load': float(np.mean(policy2_loads)) if policy2_loads else np.nan,
